@@ -5,3 +5,6 @@ handouts/
 .DS_Store
 Thumbs.db
 *.log
+data/
+site/dist/
+site/node_modules/
