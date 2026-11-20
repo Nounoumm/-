@@ -6,6 +6,10 @@
 
 面向学生的 Harness 插件：学生提出一个主题，助手把它扩展成**模块化、知识点齐全**的讲义，补全例题、易错点与分层习题，然后一键生成 **DOCX + PDF**。
 
+本仓库也包含面向教师、学生和自学者的独立中文网站，位于 [`site/`](site/README.md)：支持 DeepSeek 辅助生成、模块选择、本机历史、邮箱账号、跨设备私密历史、版本恢复及社区分享。游客无需登录；登录后可主动选择导入本机讲义。账号属于网站，不与 Harness 插件共享登录。
+
+网站运行、邮件配置与 HTTPS 部署见 [网站说明](site/README.md)，账号范围见 [已确认设计](docs/account-sync-design.md)。上传源码到 GitHub 不会自动部署账号服务。
+
 ![讲义封面](docs/preview-cover.png)
 
 ![章节预览](docs/preview-chapter.png)

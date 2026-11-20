@@ -15,10 +15,21 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Check JavaScript syntax
         run: node --check index.js
+
+      - name: Install website dependencies
+        run: npm --prefix site ci
+
+      - name: Test plugin and website
+        run: |
+          npm test
+          npm --prefix site test
+
+      - name: Build website
+        run: npm --prefix site run build
 
       - name: Set up Python
         uses: actions/setup-python@v5

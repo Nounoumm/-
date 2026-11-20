@@ -3,17 +3,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"node server/index.js\" \"vite\"",
-    "server": "node server/index.js",
+    "dev": "concurrently -k \"node --env-file-if-exists=.env server/index.js\" \"vite\"",
+    "server": "node --env-file-if-exists=.env server/index.js",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run --pool=threads --maxWorkers=1",
     "test:e2e": "playwright test"
   },
+  "engines": { "node": ">=24" },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "argon2": "^0.45.2",
     "fflate": "latest",
     "mammoth": "latest",
+    "nodemailer": "^10.6.0",
     "pdf-parse": "latest",
     "react": "latest",
     "react-dom": "latest",
@@ -24,6 +27,7 @@
     "@testing-library/jest-dom": "latest",
     "@testing-library/react": "latest",
     "concurrently": "latest",
+    "fake-indexeddb": "^6.2.8",
     "jsdom": "latest",
     "vitest": "latest"
   }

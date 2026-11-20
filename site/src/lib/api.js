@@ -10,7 +10,8 @@ export const api = {
   extractMaterials: (files) => request('/api/materials/extract', { method: 'POST', body: JSON.stringify({ files }) }),
   outline: (input, signal) => request('/api/handouts/outline', { method: 'POST', body: JSON.stringify(input), signal }),
   check: (spec, signal) => request('/api/handouts/check', { method: 'POST', body: JSON.stringify({ spec }), signal }),
-  generate: (input, signal, onProgress) => new Promise(async (resolve, reject) => {
+  generate: async (input, signal, onProgress) => {
+    let result
     try {
       const response = await fetch('/api/handouts/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal })
       if (!response.ok) throw new Error((await response.json()).error || `请求失败（${response.status}）`)
@@ -21,12 +22,13 @@ export const api = {
         const events = buffer.split('\n\n'); buffer = events.pop()
         for (const event of events) {
           const data = event.split('\n').find((line) => line.startsWith('data:'))?.slice(5).trim(); if (!data) continue
-          const payload = JSON.parse(data); if (payload.type === 'progress') onProgress?.(payload); if (payload.type === 'result') resolve(payload.spec); if (payload.type === 'error') reject(new Error(payload.error))
+          const payload = JSON.parse(data); if (payload.type === 'progress') onProgress?.(payload); if (payload.type === 'result') result = payload.spec; if (payload.type === 'error') throw new Error(payload.error)
         }
       }
-      if (!buffer.includes('"result"')) reject(new Error('生成服务没有返回完整结果。'))
-    } catch (error) { reject(error) }
-  }),
+      if (!result) throw new Error('生成服务没有返回完整结果。')
+      return result
+    } catch (error) { throw error }
+  },
   docx: async (spec) => {
     const response = await fetch('/api/handouts/docx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spec }) })
     if (!response.ok) throw new Error((await response.json()).error || 'DOCX 导出失败。')

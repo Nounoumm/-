@@ -1,0 +1,12 @@
+import { useEffect, useState } from 'react'
+import { sharesFor } from '../lib/account-api.js'
+import ShareEditor from './ShareEditor.jsx'
+export default function MyShares({ user }) {
+  const shareApi = sharesFor(user.id)
+  const [items, setItems] = useState([]), [error, setError] = useState(''), [busy, setBusy] = useState(false), [link, setLink] = useState(''), [editing, setEditing] = useState(null)
+  const refresh = () => shareApi.list().then((result) => setItems(result.items)).catch((err) => setError(err.message))
+  useEffect(() => { refresh() }, [])
+  async function act(action) { setBusy(true); setError(''); try { await action(); await refresh() } catch (err) { setError(err.message) } finally { setBusy(false) } }
+  function claim(event) { event.preventDefault(); act(async () => { const hash = link.includes('#') ? link.split('#').at(-1) : link; const [id, token] = hash.trim().split('.'); if (!id || !token) throw new Error('请粘贴包含管理令牌的完整匿名分享链接。'); await shareApi.claim(id, token); setLink('') }) }
+  return <section className="history-page"><div className="stage-heading"><div><span className="eyebrow">公开快照 · 独立管理</span><h1>我的分享</h1><p>编辑私人讲义不会更新这里的公开内容，删除私人讲义也不会自动撤回分享。</p></div></div>{error && !editing && <div className="form-error" role="alert">{error}</div>}<div className="history-list">{items.map((item) => <article className="history-row" key={item.id}><div><span className="eyebrow">{{ visible: '公开', hidden: '已被管理员隐藏', withdrawn: '已撤回' }[item.status]}</span><h3>{item.title}</h3></div><div className="history-actions"><button disabled={busy || item.status !== 'visible'} onClick={() => setEditing(item)}>编辑公开内容</button><button disabled={busy || item.status === 'withdrawn'} onClick={() => { if (window.confirm('撤回这份公开分享？')) act(() => shareApi.remove(item.id)) }}>撤回分享</button></div></article>)}</div>{!items.length && <p className="empty-state">还没有关联到此账号的分享。</p>}<form className="form-panel claim-form" onSubmit={claim}><h3>关联已有匿名分享</h3><p>必须持有原管理链接，不会按标题或展示名称认领。</p><label>原管理链接<input type="password" autoComplete="off" value={link} onChange={(event) => setLink(event.target.value)} required /></label><button disabled={busy} className="primary">验证并关联</button></form>{editing && <ShareEditor item={editing} busy={busy} error={error} onClose={() => setEditing(null)} onSave={(payload) => act(async () => { await shareApi.update(editing.id, payload); setEditing(null) })} />}</section>
+}

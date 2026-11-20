@@ -1,37 +1,74 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from './lib/api.js'
-import { DEPTHS, EXERCISES } from './lib/handout-schema.js'
-import { createHistoryController } from './lib/history-controller.js'
-import { saveHandout } from './lib/history-db.js'
-import HistoryView from './components/HistoryView.jsx'
+import { authApi, downloadJson } from './lib/account-api.js'
+import { useDraft } from './lib/use-draft.js'
+import AuthDialog from './components/AuthDialog.jsx'
+import AccountHistory from './components/AccountHistory.jsx'
+import RevisionDialog from './components/RevisionDialog.jsx'
+import HandoutReader from './components/HandoutReader.jsx'
+import CreateHandout from './components/CreateHandout.jsx'
 import CommunityView from './components/CommunityView.jsx'
 import PublishDialog from './components/PublishDialog.jsx'
-
-const labels = { concise: '精简', standard: '标准', detailed: '详细', none: '不出题', basic: '基础 + 提高', full: '基础 + 提高 + 挑战' }
-
-function Outline({ outline, selected, setSelected }) {
-  return <div className="outline-tree">{outline.modules.map((module) => <section className="outline-module" key={module.id}>
-    <label><input type="checkbox" checked={selected.includes(module.id)} onChange={(e) => setSelected((ids) => e.target.checked ? [...ids, module.id] : ids.filter((id) => id !== module.id))} /> <strong>{module.title}</strong></label>
-    <p>{module.description}</p><ul>{module.chapters.map((chapter) => <li key={chapter.id}>{chapter.title}<span>{chapter.sections.length} 节</span></li>)}</ul>
-  </section>)}</div>
-}
-
-function Reader({ spec, setSpec, check, onCheck, onDownload, busy }) {
-  const [active, setActive] = useState(0); const module = spec.modules?.[active] || spec.modules?.[0]
-  const updateChapter = (chapter, update) => setSpec((current) => ({ ...current, modules: current.modules.map((item) => item === module ? { ...item, chapters: item.chapters.map((entry) => entry === chapter ? { ...entry, ...update } : entry) } : item) }))
-  return <div className="reader-layout"><aside className="chapter-nav"><div className="eyebrow">讲义结构</div><select value={active} onChange={(e) => setActive(Number(e.target.value))}>{spec.modules?.map((item, index) => <option value={index} key={item.title}>{item.title}</option>)}</select>{spec.modules?.map((item, index) => <button className={index === active ? 'nav-item active' : 'nav-item'} onClick={() => setActive(index)} key={item.title}>{item.title}<small>{item.chapters?.length || 0} 章</small></button>)}</aside><main className="reader"><div className="reader-toolbar"><div><span className="eyebrow">正在编辑</span><h2>{spec.meta?.title}</h2></div><div className="toolbar-actions"><button onClick={onCheck} disabled={busy}>检查讲义</button><button onClick={onDownload} disabled={busy || check?.issues?.some((i) => i.level === 'error')}>下载 DOCX</button><button className="primary" onClick={() => window.print()}>打印 / PDF</button></div></div>{check && <div className={check.ok ? 'notice success' : 'notice warning'}>{check.ok ? `检查通过：${check.stats.chapters} 章 / ${check.stats.sections} 节 / ${check.stats.questions} 题` : check.issues.filter((i) => i.level === 'error').map((i) => i.message).join('；')}</div>}{module?.chapters?.map((chapter, index) => <article className="chapter" key={chapter.id || chapter.title}><span className="chapter-kicker">第 {index + 1} 章</span><h3>{chapter.title}</h3><ul className="objectives">{(chapter.objectives || []).map((item) => <li key={item}>{item}</li>)}</ul>{chapter.sections?.map((section) => <section key={section.id || section.title}><h4>{section.title}</h4><textarea value={section.body || ''} onChange={(e) => setSpec((current) => ({ ...current, modules: current.modules.map((m) => m === module ? { ...m, chapters: m.chapters.map((c) => c === chapter ? { ...c, sections: c.sections.map((s) => s === section ? { ...s, body: e.target.value } : s) } : c) } : m) }))} /></section>)}<h4>本章小结</h4><textarea value={(chapter.summary || []).join('\n')} onChange={(e) => updateChapter(chapter, { summary: e.target.value.split('\n') })} /></article>)}</main></div>
-}
+import MyShares from './components/MyShares.jsx'
 
 export default function App() {
-  const [page, setPage] = useState('new'); const [templates, setTemplates] = useState([]); const [form, setForm] = useState({ topic: '', audience: '', template: 'standard', chapters: 6, exercises: 'basic', depth: 'standard' }); const [materials, setMaterials] = useState([]); const [materialText, setMaterialText] = useState(''); const [outline, setOutline] = useState(null); const [selected, setSelected] = useState([]); const [spec, setSpec] = useState(null); const [check, setCheck] = useState(null); const [status, setStatus] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [showPublish, setShowPublish] = useState(false); const [publicSpec, setPublicSpec] = useState(null); const historyRef = useRef(null)
-  useEffect(() => { api.templates().then((data) => setTemplates(data.templates)).catch((e) => setError(e.message)); historyRef.current = createHistoryController({ save: saveHandout }) }, [])
-  useEffect(() => { if (spec && historyRef.current) { const id = spec.__historyId || globalThis.crypto?.randomUUID?.() || `${Date.now()}`; if (!spec.__historyId) setSpec((current) => ({ ...current, __historyId: id })); historyRef.current.schedule({ id, title: spec.meta?.title || '未命名讲义', topic: spec.meta?.title || '', updatedAt: new Date().toISOString(), checkStatus: check?.ok ? 'ok' : 'unchecked', spec: { ...spec, __historyId: id } }) } }, [spec, check])
-  const template = useMemo(() => templates.find((item) => item.id === form.template), [templates, form.template])
-  function change(field, value) { setForm((current) => ({ ...current, [field]: value })); setError('') }
-  async function makeOutline(e) { e.preventDefault(); setBusy(true); setError(''); try { let text = materialText; if (materials.length) { const extracted = await api.extractMaterials(materials); text = extracted.files.map((file) => `【${file.name}】\n${file.text}`).join('\n\n'); setMaterialText(text) } const data = await api.outline(form); setOutline(data.outline); setSelected(data.outline.modules.map((item) => item.id)); setStatus('请确认模块范围和内容深度。') } catch (err) { setError(err.message) } finally { setBusy(false) } }
-  async function generate() { setBusy(true); setError(''); setStatus('正在逐个生成模块……'); try { const result = await api.generate({ ...form, selectedModuleIds: selected, outline, materialText }, undefined, (progress) => setStatus(`${progress.status === 'complete' ? '已完成' : '正在生成'}：${progress.title}`)); setSpec(result); setOutline(null); setCheck(null); setStatus('讲义已生成，可以继续编辑。') } catch (err) { setError(err.message) } finally { setBusy(false) } }
-  async function checkSpec() { setBusy(true); try { setCheck(await api.check(spec)) } catch (err) { setError(err.message) } finally { setBusy(false) } }
-  async function download() { setBusy(true); try { const blob = await api.docx(spec); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `${spec.meta?.title || '课程讲义'}.docx`; link.click(); URL.revokeObjectURL(url) } catch (err) { setError(err.message) } finally { setBusy(false) } }
-  function openHistory(record) { setSpec(record.spec); setPage('new'); setCheck(null) }
-  return <div className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark">课</span><span>课程讲义工坊</span></div><nav><button className={page === 'new' ? 'current' : ''} onClick={() => { setPage('new'); setSpec(null) }}>新建讲义</button><button className={page === 'history' ? 'current' : ''} onClick={() => setPage('history')}>本机历史</button><button className={page === 'community' ? 'current' : ''} onClick={() => setPage('community')}>讲义社区</button></nav><span className="status-chip">免注册使用</span></header><div className="page-shell">{page === 'history' ? <HistoryView onOpen={openHistory} onBack={() => { setPage('new'); setSpec(null) }} /> : page === 'community' ? <CommunityView onOpen={(item) => { setPublicSpec(item.spec); setPage('new') }} /> : spec ? <><Reader spec={spec} setSpec={setSpec} check={check} onCheck={checkSpec} onDownload={download} busy={busy} /><div className="reader-share"><button onClick={() => setShowPublish(true)}>分享至讲义社区</button></div></> : publicSpec ? <Reader spec={publicSpec} setSpec={setPublicSpec} check={null} onCheck={() => {}} onDownload={() => {}} busy={false} /> : !outline ? <section className="start-layout"><div className="intro"><span className="eyebrow">学习内容工作台</span><h1>把主题整理成一份能真正使用的讲义。</h1><p>教师可以备课，学生可以复习，自学者可以按自己的节奏组织知识。先定结构，再选择要深入的模块。</p><div className="intro-points"><span>模块化大纲</span><span>资料辅助</span><span>DOCX 导出</span></div></div><form className="form-panel" onSubmit={makeOutline}><div className="panel-heading"><span className="eyebrow">新建讲义</span><h2>从一个主题开始</h2></div><label>主题<input required value={form.topic} onChange={(e) => change('topic', e.target.value)} placeholder="例如：C 语言指针与内存" /></label><label>适用对象<input value={form.audience} onChange={(e) => change('audience', e.target.value)} placeholder="例如：大一学生、零基础学习者" /></label><label>参考资料<input type="file" multiple accept=".pdf,.docx,.pptx,.txt,.md,.markdown" onChange={async (e) => { const files = await Promise.all([...e.target.files].map(async (file) => { const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); return { name: file.name, data: btoa(binary) } })); setMaterials(files) }} /><small>支持 PDF、DOCX、PPTX、TXT、Markdown；资料只用于这次生成。</small></label><label>模板<select value={form.template} onChange={(e) => change('template', e.target.value)}>{templates.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select>{template && <small>{template.description}</small>}</label><div className="form-grid"><label>章节数<input type="number" min="3" max="12" value={form.chapters} onChange={(e) => change('chapters', Number(e.target.value))} /></label><label>习题规模<select value={form.exercises} onChange={(e) => change('exercises', e.target.value)}>{EXERCISES.map((item) => <option value={item} key={item}>{labels[item]}</option>)}</select></label></div><fieldset><legend>内容深度</legend><div className="segmented">{DEPTHS.map((item) => <button type="button" className={form.depth === item ? 'selected' : ''} onClick={() => change('depth', item)} key={item}>{labels[item]}</button>)}</div></fieldset><button className="primary wide" disabled={busy}>{busy ? '正在整理…' : '生成模块大纲'}<span>→</span></button>{error && <div className="form-error">{error}</div>}<p className="privacy-note">生成时，主题、适用对象和你确认的资料文本会发送给 DeepSeek。</p></form></section> : <section className="outline-stage"><div className="stage-heading"><div><span className="eyebrow">第二步 · 确认结构</span><h1>选择这次真正要用的模块。</h1><p>{status}</p></div><button onClick={() => setOutline(null)}>返回修改</button></div><Outline outline={outline} selected={selected} setSelected={setSelected} /><button className="primary wide" disabled={busy || !selected.length} onClick={generate}>{busy ? '正在生成…' : `生成 ${selected.length} 个模块`}<span>→</span></button>{error && <div className="form-error">{error}</div>}</section>}{showPublish && spec && <PublishDialog spec={spec} onClose={() => setShowPublish(false)} />}</div></div>
+  const [user, setUser] = useState(null), [sessionReady, setSessionReady] = useState(false), [templates, setTemplates] = useState([])
+  const [page, setPage] = useState('new'), [auth, setAuth] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+  const [check, setCheck] = useState(null), [publish, setPublish] = useState(false), [revisions, setRevisions] = useState(false), [exit, setExit] = useState(false), [publicSpec, setPublicSpec] = useState(null)
+  const editing = useDraft(user), userRef = useRef(user), identityEpoch = useRef(0)
+  userRef.current = user
+  useEffect(() => {
+    let mounted = true
+    api.templates().then((result) => { if (mounted) setTemplates(result.templates) }).catch((err) => { if (mounted) setError(err.message) })
+    const initialEpoch = identityEpoch.current
+    authApi.session().then((result) => { if (mounted && initialEpoch === identityEpoch.current) setUser(result.user) }).catch((err) => { if (mounted) setError(`无法检查登录状态：${err.message}`) }).finally(() => { if (mounted) setSessionReady(true) })
+    const hash = new URLSearchParams(window.location.hash.slice(1)), verify = hash.get('verify'), reset = hash.get('reset')
+    if (verify || reset) { window.history.replaceState(null, '', window.location.pathname + window.location.search); setAuth({ mode: verify ? 'verify' : 'reset', token: verify || reset }) }
+    return () => { mounted = false }
+  }, [])
+  async function guarded(action) { const epoch = identityEpoch.current; setError(''); try { await editing.flush(); if (epoch === identityEpoch.current) await action() } catch (err) { if (epoch === identityEpoch.current) setError(`内容仍保留在当前页面。${err.message}`) } }
+  async function navigate(next, create = false) { await guarded(() => { setPage(next); if (create) { editing.close(); setPublicSpec(null); setCheck(null) } }) }
+  async function openRecord(record, location, owner) { if (location === 'cloud' && owner !== userRef.current?.id) return; await guarded(() => { if (location === 'cloud' && owner !== userRef.current?.id) return; editing.open(record.spec, { location, record, owner, save: !!record.recoveryKey }); setPublicSpec(null); setPage('new'); setCheck(null) }) }
+  const renderIdentityEpoch = identityEpoch.current
+  function generated(spec) { if (renderIdentityEpoch !== identityEpoch.current || user?.id !== userRef.current?.id) return; editing.open(spec, { location: user ? 'cloud' : 'local', owner: user?.id, save: true }); setCheck(null) }
+  async function login(nextUser) {
+    identityEpoch.current++
+    if (editing.draft?.location === 'cloud' && editing.draft.owner !== nextUser.id) {
+      if (editing.hasPending()) downloadJson(editing.draft.spec)
+      await editing.clearRecovery(editing.draft.owner).catch((err) => setError(err.message))
+      editing.close(); setPublicSpec(null); setCheck(null)
+    } else if (editing.draft?.location === 'local') {
+      await editing.flush().catch((err) => { downloadJson(editing.draft.spec); setError(err.message) })
+      editing.close()
+    }
+    setUser(nextUser); setPage('history'); setError('')
+  }
+  async function logout(mode) {
+    setBusy(true); setError('')
+    try {
+      if (mode === 'save') await editing.flush()
+      if (mode === 'backup' && editing.draft) downloadJson(editing.draft.spec)
+      const oldOwner = user?.id
+      await authApi.logout(); identityEpoch.current++
+      try { if (oldOwner) await editing.clearRecovery(oldOwner) } catch (err) { setError(err.message) }
+      editing.close(); setUser(null); setPublicSpec(null); setCheck(null); setPublish(false); setRevisions(false); setExit(false); setPage('new')
+    } catch (err) { setError(err.message) } finally { setBusy(false) }
+  }
+  const spec = editing.draft?.spec || publicSpec
+  async function validate() { setBusy(true); setError(''); try { setCheck(await api.check(spec)) } catch (err) { setError(err.message) } finally { setBusy(false) } }
+  async function docx() { setBusy(true); setError(''); try { const blob = await api.docx(spec); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${spec.meta.title}.docx`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000) } catch (err) { setError(err.message) } finally { setBusy(false) } }
+  function update(value) { setCheck(null); if (editing.draft) editing.update(value); else setPublicSpec(value) }
+  const saveLabel = { pending: '等待保存', saving: '保存中…', saved: editing.draft?.location === 'cloud' ? '已同步' : '已保存在本机', error: '保存失败 · 内容仍在当前页面' }[editing.state]
+  return <div className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark">课</span><span>课程讲义工坊</span></div><nav aria-label="主导航"><button className={page === 'new' ? 'current' : ''} onClick={() => navigate('new', true)}>新建讲义</button><button className={page === 'history' ? 'current' : ''} onClick={() => navigate('history')}>{user ? '讲义历史' : '本机历史'}</button><button className={page === 'community' ? 'current' : ''} onClick={() => navigate('community')}>讲义社区</button></nav><div className="account-menu">{user ? <><span title={user.email}>{user.displayName || user.email}</span><button onClick={() => navigate('shares')}>我的分享</button><button disabled={busy} onClick={() => setExit(true)}>退出</button></> : <button disabled={!sessionReady} onClick={() => setAuth({ mode: 'login' })}>{sessionReady ? '登录 / 注册' : '检查登录状态…'}</button>}</div></header>
+    <div className="page-shell">{error && <div role="alert" className="form-error">{error}</div>}
+      {editing.draft && <div className="sync-strip"><span>{editing.draft.location === 'cloud' ? `账号私密保存 · ${user?.email || '请重新登录'}` : '仅本机保存'} · <strong role="status">{saveLabel}</strong></span><div className="toolbar-actions"><button onClick={() => downloadJson(editing.draft.spec)}>导出 JSON 备份</button>{editing.state === 'error' && <button onClick={() => guarded(() => {})}>重试保存</button>}{editing.draft.location === 'cloud' && editing.draft.id && <button onClick={() => guarded(() => setRevisions(true))}>修订版本</button>}</div></div>}
+      {editing.error && <div className="form-error" role="alert">{editing.error.message}{editing.error.status === 401 && <button onClick={() => setAuth({ mode: 'login' })}>重新登录</button>}</div>}
+      {editing.recoveryError && <p className="form-error" role="alert">{editing.recoveryError}</p>}
+      {editing.conflict && <section className="conflict-panel" role="alert"><h3>这份讲义有更新，尚未覆盖云端内容。</h3><p>{editing.conflict.deletedAt ? '讲义已在另一设备删除。当前内容可以另存为副本。' : `云端版本 ${editing.conflict.version} 与当前设备版本不同。请先查看或保存此设备的修改。`}</p><div className="toolbar-actions"><button onClick={() => editing.keepCopy().catch((err) => setError(err.message))}>保留此设备内容为副本</button>{editing.conflict.spec && <><button onClick={() => downloadJson(editing.conflict.spec)}>下载云端版本供比较</button><button onClick={() => { if (window.confirm('读取云端最新版本将替换当前编辑内容。请先导出当前内容或保留为副本。')) editing.useServer() }}>读取云端最新版本</button></>}</div></section>}
+      {page === 'shares' && user ? <MyShares key={user.id} user={user} /> : page === 'history' ? <AccountHistory key={user?.id || 'guest'} user={user} onOpen={openRecord} onNew={() => navigate('new', true)} /> : page === 'community' ? <CommunityView onOpen={(record) => guarded(() => { editing.close(); setPublicSpec(record.spec); setPage('new'); setCheck(null) })} /> : spec ? <><HandoutReader spec={spec} onChange={update} check={check} onCheck={validate} onDownload={docx} busy={busy} /><div className="reader-share"><button onClick={() => setPublish(true)}>分享至讲义社区</button><button onClick={() => downloadJson(spec)}>导出 JSON</button>{!editing.draft && <button onClick={() => { editing.open(spec, { location: user ? 'cloud' : 'local', save: true }); setPublicSpec(null) }}>保存为我的讲义</button>}</div></> : <CreateHandout key={user?.id || 'guest'} templates={templates} onGenerated={generated} />}
+      {publish && spec && <PublishDialog spec={spec} onClose={() => setPublish(false)} user={user} />}
+      {auth && <AuthDialog initialMode={auth.mode} token={auth.token} onLogin={login} onClose={() => setAuth(null)} />}
+      {revisions && editing.draft && <RevisionDialog record={editing.draft} owner={editing.draft.owner} onRestored={(record, owner) => { if (userRef.current?.id === owner) editing.open(record.spec, { location: 'cloud', record, owner }) }} onClose={() => setRevisions(false)} />}
+      {exit && <div className="dialog-backdrop"><section className="account-dialog form-panel" role="dialog" aria-modal="true" aria-labelledby="logout-title"><h2 id="logout-title">退出账号</h2><p>{editing.hasPending() ? '当前有尚未同步的内容。请选择保存、下载备份后退出，或明确放弃。' : '退出后会清除当前账号的页面内容，本机游客历史仍保留。'}</p><div className="dialog-actions"><button disabled={busy} onClick={() => logout('save')}>{busy ? '正在处理…' : '保存后退出'}</button>{editing.hasPending() && <><button disabled={busy} onClick={() => logout('backup')}>下载 JSON 后退出</button><button className="danger" disabled={busy} onClick={() => { if (window.confirm('明确放弃此设备尚未保存的内容？')) logout('discard') }}>放弃修改并退出</button></>}<button disabled={busy} onClick={() => setExit(false)}>取消</button></div>{error && <div className="form-error" role="alert">{error}</div>}</section></div>}
+    </div></div>
 }

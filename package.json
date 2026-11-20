@@ -5,7 +5,7 @@
   "description": "面向学生的模块化课程讲义生成器：设计章节、编写内容，一键产出 DOCX 与 PDF，并可按要求附习题与答案。",
   "type": "module",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "check": "node --check index.js"
   },
   "exports": {

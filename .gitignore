@@ -8,3 +8,11 @@ Thumbs.db
 data/
 site/dist/
 site/node_modules/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.sqlite.backup-*
+site/test-results/
+site/playwright-report/
